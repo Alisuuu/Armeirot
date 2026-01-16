@@ -3,16 +3,39 @@ const cors = require('cors');
 const admin = require('firebase-admin');
 
 // --- CONFIGURAÇÃO DO FIREBASE ---
-// Este arquivo é essencial. Baixe-o do seu console do Firebase.
-// (Configurações do Projeto -> Contas de Serviço -> Gerar nova chave privada)
-const serviceAccount = require('./serviceAccountKey.json');
+let serviceAccountConfig;
+if (process.env.FIREBASE_PROJECT_ID && process.env.FIREBASE_CLIENT_EMAIL && process.env.FIREBASE_PRIVATE_KEY) {
+  serviceAccountConfig = {
+    projectId: process.env.FIREBASE_PROJECT_ID,
+    clientEmail: process.env.FIREBASE_CLIENT_EMAIL,
+    privateKey: process.env.FIREBASE_PRIVATE_KEY.replace(/\\n/g, '\n'), // Handle private key newlines
+  };
+} else {
+  console.warn('Firebase environment variables (FIREBASE_PROJECT_ID, FIREBASE_CLIENT_EMAIL, FIREBASE_PRIVATE_KEY) are not set. Attempting to load from serviceAccountKey.json for local development.');
+  try {
+    serviceAccountConfig = require('./serviceAccountKey.json');
+  } catch (error) {
+    console.error('Error loading serviceAccountKey.json:', error.message);
+    console.error('Firebase Admin SDK credentials are not configured. Please set environment variables or provide serviceAccountKey.json.');
+    process.exit(1); // Exit if no credentials are found
+  }
+}
 
 admin.initializeApp({
-  credential: admin.credential.cert(serviceAccount)
+  credential: admin.credential.cert(serviceAccountConfig)
 });
 
 const db = admin.firestore();
 const app = express();
+
+const TWITCH_EXTENSION_SECRET = process.env.TWITCH_EXTENSION_SECRET;
+if (TWITCH_EXTENSION_SECRET) {
+  console.log('Twitch Extension Secret is loaded from environment variables.');
+  // In a real application, you would use this secret to verify JWTs from Twitch,
+  // or to sign requests to the Twitch API from your EBS.
+} else {
+  console.warn('TWITCH_EXTENSION_SECRET environment variable is not set. Twitch API interactions requiring this secret will not function.');
+}
 
 app.use(cors()); // Em produção, restrinja para a origem da sua extensão
 app.use(express.json());
