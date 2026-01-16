@@ -1,127 +1,116 @@
 const express = require('express');
-const AWS = require('aws-sdk');
-const jwt = require('jsonwebtoken');
-const bodyParser = require('body-parser');
 const cors = require('cors');
-const nodemailer = require('nodemailer'); // Para enviar o e-mail
+const admin = require('firebase-admin');
 
+// --- CONFIGURAÇÃO DO FIREBASE ---
+// Este arquivo é essencial. Baixe-o do seu console do Firebase.
+// (Configurações do Projeto -> Contas de Serviço -> Gerar nova chave privada)
+const serviceAccount = require('./serviceAccountKey.json');
+
+admin.initializeApp({
+  credential: admin.credential.cert(serviceAccount)
+});
+
+const db = admin.firestore();
 const app = express();
-// Em produção, configure o CORS de forma restrita para aceitar apenas a origem da sua extensão
-// const corsOptions = {
-//   origin: 'https://<SEU_ID_DE_EXTENSAO>.ext-twitch.tv',
-//   optionsSuccessStatus: 200
-// };
-// app.use(cors(corsOptions));
 
-app.use(cors()); // Configuração aberta, ideal para início, mas restrinja em produção.
-app.use(bodyParser.json());
+app.use(cors()); // Em produção, restrinja para a origem da sua extensão
+app.use(express.json());
 
-// --- CONFIGURAÇÕES (Lidas de Variáveis de Ambiente em Produção) ---
-const JWT_SECRET = process.env.JWT_SECRET || 'seu_segredo_super_secreto';
-const R2_BUCKET = process.env.R2_BUCKET || 'nome-do-seu-bucket';
-const R2_PUBLIC_DOMAIN = process.env.R2_PUBLIC_DOMAIN || 'https://pub-xxxxx.r2.dev';
-const R2_ACCOUNT_ID = process.env.R2_ACCOUNT_ID || '<ID_DA_CONTA>';
-const R2_ACCESS_KEY = process.env.R2_ACCESS_KEY || 'R2_ACCESS_KEY';
-const R2_SECRET_KEY = process.env.R2_SECRET_KEY || 'R2_SECRET_KEY';
+const PORT = process.env.PORT || 8080;
 
-// Configuração do R2 (Cliente S3)
-const s3 = new AWS.S3({
-  endpoint: `https://\${R2_ACCOUNT_ID}.r2.cloudflarestorage.com`,
-  accessKeyId: R2_ACCESS_KEY,
-  secretAccessKey: R2_SECRET_KEY,
-  signatureVersion: 'v4',
-  region: 'auto'
-});
+// --- ENDPOINTS DA API ---
 
-// "Banco de dados" em memória (Use Mongo/Postgres na produção)
-const codigosTemporarios = {}; 
+// Endpoint para criar um novo post
+app.post('/posts', async (req, res) => {
+  try {
+    const { weaponName, username, imageUrl } = req.body;
 
-// --- ROTAS DE LOGIN ---
-
-// 1. Pedir o código
-app.post('/auth/request-code', async (req, res) => {
-  const { email } = req.body;
-  if (!email) {
-    return res.status(400).json({ error: 'E-mail é obrigatório.' });
-  }
-  const code = Math.floor(1000 + Math.random() * 9000).toString(); // Gera 4 dígitos
-  
-  codigosTemporarios[email] = { code, timestamp: Date.now() }; // Salva com timestamp
-
-  // Simulação de envio de e-mail (Configure seu SMTP real aqui)
-  console.log(`>>> CÓDIGO PARA \${email}: \${code} <<<`);
-  
-  // Aqui você usaria o nodemailer para enviar de verdade:
-  // const transporter = nodemailer.createTransport({ /* ...seu SMTP */ });
-  // await transporter.sendMail({ to: email, text: `Seu código de acesso: \${code}` });
-
-  res.json({ message: 'Código enviado (verifique o console do servidor para testes)' });
-});
-
-// 2. Verificar código e gerar Token
-app.post('/auth/verify-code', (req, res) => {
-  const { email, code } = req.body;
-  const stored = codigosTemporarios[email];
-
-  if (stored && stored.code === code) {
-    // Opcional: Verificar se o código expirou (ex: 5 minutos)
-    const FIVE_MINUTES = 5 * 60 * 1000;
-    if (Date.now() - stored.timestamp > FIVE_MINUTES) {
-        delete codigosTemporarios[email];
-        return res.status(401).json({ error: 'Código expirado.' });
+    if (!weaponName || !username || !imageUrl) {
+      return res.status(400).send('Dados incompletos. É necessário weaponName, username e imageUrl.');
     }
 
-    // Código correto! Gera o token de sessão
-    const token = jwt.sign({ email }, JWT_SECRET, { expiresIn: '30d' });
-    delete codigosTemporarios[email]; // Limpa o código usado
-    res.json({ token });
-  } else {
-    res.status(401).json({ error: 'Código inválido ou não solicitado.' });
+    const newPost = {
+      weaponName,
+      username,
+      imageUrl,
+      likes: 0,
+      createdAt: admin.firestore.FieldValue.serverTimestamp(),
+    };
+
+    const postRef = await db.collection('posts').add(newPost);
+    res.status(201).send({ id: postRef.id, ...newPost });
+  } catch (error) {
+    console.error('Erro ao criar post:', error);
+    res.status(500).send('Erro no servidor ao criar post.');
   }
 });
 
-// --- ROTA DE UPLOAD ---
-
-// Middleware para proteger a rota (só quem tem Token passa)
-const autenticar = (req, res, next) => {
-  const token = req.headers.authorization?.split(' ')[1];
-  if (!token) return res.status(403).json({ error: 'Token de autenticação não fornecido.' });
-  
-  jwt.verify(token, JWT_SECRET, (err, decoded) => {
-    if (err) return res.status(403).json({ error: 'Token inválido ou expirado.' });
-    req.user = decoded; // Salva dados do usuário (ex: email) no objeto da requisição
-    next();
-  });
-};
-
-// 3. Gerar URL Pré-assinada
-app.post('/upload/sign', autenticar, async (req, res) => {
-  const { fileType, fileName } = req.body; // ex: 'image/png', 'minha-imagem.png'
-  if (!fileType || !fileName) {
-    return res.status(400).json({ error: 'fileType e fileName são obrigatórios.' });
-  }
-
-  // Gera um nome de arquivo único para evitar sobreposições
-  const uniqueFileName = `uploads/\${req.user.email}/\${Date.now()}-\${fileName}`;
-
-  const params = {
-    Bucket: R2_BUCKET,
-    Key: uniqueFileName,
-    Expires: 300, // 5 minutos para iniciar o upload
-    ContentType: fileType
-  };
-
+// Endpoint para buscar todos os posts (ranking)
+app.get('/posts', async (req, res) => {
   try {
-    const uploadURL = await s3.getSignedUrlPromise('putObject', params);
-    res.json({
-      uploadURL,
-      finalUrl: `\${R2_PUBLIC_DOMAIN}/\${uniqueFileName}`
+    const postsSnapshot = await db.collection('posts').orderBy('likes', 'desc').get();
+    const posts = [];
+    postsSnapshot.forEach((doc) => {
+      posts.push({ id: doc.id, ...doc.data() });
     });
-  } catch (err) {
-    console.error('Erro ao gerar URL assinada:', err);
-    res.status(500).json({ error: 'Erro interno ao gerar URL de upload.' });
+    res.status(200).json(posts);
+  } catch (error) {
+    console.error('Erro ao buscar posts:', error);
+    res.status(500).send('Erro no servidor ao buscar posts.');
   }
 });
 
-const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => console.log(`Backend rodando na porta \${PORT}`));
+// Endpoint para curtir um post
+app.post('/posts/:postId/like', async (req, res) => {
+    try {
+      const { postId } = req.params;
+      const postRef = db.collection('posts').doc(postId);
+  
+      await postRef.update({
+        likes: admin.firestore.FieldValue.increment(1)
+      });
+  
+      res.status(200).send({ message: 'Post curtido com sucesso!' });
+    } catch (error) {
+      console.error('Erro ao curtir post:', error);
+      res.status(500).send('Erro no servidor ao curtir post.');
+    }
+  });
+  
+// Endpoint de busca
+app.get('/search', async (req, res) => {
+    try {
+      const { term } = req.query;
+  
+      if (!term) {
+        return res.status(400).send('É necessário um termo para a busca.');
+      }
+  
+      const weaponNamePromise = db.collection('posts').where('weaponName', '==', term).get();
+      const usernamePromise = db.collection('posts').where('username', '==', term).get();
+  
+      const [weaponNameSnapshot, usernameSnapshot] = await Promise.all([
+        weaponNamePromise,
+        usernamePromise,
+      ]);
+  
+      const posts = new Map();
+      weaponNameSnapshot.forEach((doc) => {
+        posts.set(doc.id, { id: doc.id, ...doc.data() });
+      });
+      usernameSnapshot.forEach((doc) => {
+        posts.set(doc.id, { id: doc.id, ...doc.data() });
+      });
+  
+      res.status(200).json(Array.from(posts.values()));
+    } catch (error) {
+      console.error('Erro ao buscar:', error);
+      res.status(500).send('Erro no servidor ao buscar.');
+    }
+});
+
+
+app.listen(PORT, () => {
+  console.log(`Servidor Firebase Backend rodando na porta ${PORT}`);
+});

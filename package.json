@@ -1,7 +1,7 @@
 {
   "name": "backend",
   "version": "1.0.0",
-  "description": "Twitch Extension Backend with R2 Presigned URLs",
+  "description": "Twitch Extension Backend using Firebase",
   "main": "index.js",
   "scripts": {
     "start": "node index.js"
@@ -10,11 +10,8 @@
   "author": "",
   "license": "ISC",
   "dependencies": {
-    "aws-sdk": "^2.1589.0",
-    "body-parser": "^1.20.2",
     "cors": "^2.8.5",
     "express": "^4.18.2",
-    "jsonwebtoken": "^9.0.2",
-    "nodemailer": "^6.9.13"
+    "firebase-admin": "^11.11.1"
   }
 }
