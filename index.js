@@ -16,13 +16,13 @@ const app = express();
 app.use(cors()); // Configuração aberta, ideal para início, mas restrinja em produção.
 app.use(bodyParser.json());
 
-// --- CONFIGURAÇÕES (Use .env na vida real!) ---
-const JWT_SECRET = 'seu_segredo_super_secreto'; // TODO: Mude e coloque em .env
-const R2_BUCKET = 'nome-do-seu-bucket'; // TODO: Mude para o seu bucket
-const R2_PUBLIC_DOMAIN = 'https://pub-xxxxx.r2.dev'; // TODO: Mude para seu domínio público do R2
-const R2_ACCOUNT_ID = '<ID_DA_CONTA>'; // TODO: Mude para o ID da sua conta Cloudflare
-const R2_ACCESS_KEY = 'R2_ACCESS_KEY'; // TODO: Mude e coloque em .env
-const R2_SECRET_KEY = 'R2_SECRET_KEY'; // TODO: Mude e coloque em .env
+// --- CONFIGURAÇÕES (Lidas de Variáveis de Ambiente em Produção) ---
+const JWT_SECRET = process.env.JWT_SECRET || 'seu_segredo_super_secreto';
+const R2_BUCKET = process.env.R2_BUCKET || 'nome-do-seu-bucket';
+const R2_PUBLIC_DOMAIN = process.env.R2_PUBLIC_DOMAIN || 'https://pub-xxxxx.r2.dev';
+const R2_ACCOUNT_ID = process.env.R2_ACCOUNT_ID || '<ID_DA_CONTA>';
+const R2_ACCESS_KEY = process.env.R2_ACCESS_KEY || 'R2_ACCESS_KEY';
+const R2_SECRET_KEY = process.env.R2_SECRET_KEY || 'R2_SECRET_KEY';
 
 // Configuração do R2 (Cliente S3)
 const s3 = new AWS.S3({
