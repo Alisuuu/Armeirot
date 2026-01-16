@@ -36,18 +36,7 @@ if (TWITCH_EXTENSION_SECRET) {
 } else {
   console.warn('TWITCH_EXTENSION_SECRET environment variable is not set. Twitch API interactions requiring this secret will not function.');
 }
-
-const FRONTEND_ORIGIN = process.env.FRONTEND_ORIGIN;
-const corsOptions = {
-  origin: FRONTEND_ORIGIN || '*', // Allow specific origin or all for development
-  methods: 'GET,HEAD,PUT,PATCH,POST,DELETE',
-  credentials: true,
-  optionsSuccessStatus: 204
-};
-if (!FRONTEND_ORIGIN) {
-    console.warn('FRONTEND_ORIGIN environment variable is not set. CORS is configured to allow all origins. Please set FRONTEND_ORIGIN in production for better security.');
-}
-app.use(cors(corsOptions)); // Em produção, restrinja para a origem da sua extensão
+// CORS agora configurado via vercel.json
 app.use(express.json());
 
 const PORT = process.env.PORT || 8080;
